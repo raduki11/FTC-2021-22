@@ -1,0 +1,189 @@
+{
+    // Declare OpMode members.
+    private ElapsedTime runtime = new ElapsedTime();
+    private DcMotor LBM = null;
+    private DcMotor RBM = null;
+    private DcMotor LFM = null;
+    private DcMotor RFM = null;
+    //private DcMotor test= null; For testing the encoder of a motor
+    private DcMotor ARM1 = null; // Motor for FIRST  ARM LINK
+    private DcMotor ARM2 = null; // Motor for SECOND ARM LINK
+
+    PIDController pidARM1, pidARM2;
+
+    static final double EC_PER_REV =  1440;
+    static final double EC_PER_REV2 = 980;
+    static final double ACC_DEG = 10;//pulses
+    static final double MAX_SPEED1 = 0.5;
+    static final double MAX_SPEED2 = 0.5;
+    static final double INIT_SPEED1 = 0.1;
+    static final double INIT_SPEED2 = 0.1;
+    double targetAngle1 = 0, targetAngle2 = 0, powARM1 = 0, powARM2 = 0, powPID1 = 0, powPID2 = 0, targetAcc = 0, f1 = 0.0055, f2 = 0;
+
+    /*
+ 0    * Code to run ONCE when the driver hits INIT
+.     */
+    @Override
+    public void init() {
+        telemetry.addData("Status", "Initialized");
+
+        // Initialize the hardware variables. Note that the strings used here as parameters
+        // to 'get' must correspond to the names assigned during the robot configuration
+        // step (using the FTC Robot Controller app on the phone).
+        LBM  = hardwareMap.get(DcMotor.class, "LBM");
+        RBM = hardwareMap.get(DcMotor.class, "RBM");
+        LFM  = hardwareMap.get(DcMotor.class, "LFM");
+        RFM = hardwareMap.get(DcMotor.class, "RFM");
+        ARM1 = hardwareMap.get(DcMotor.class, "ARM1");
+        ARM2 = hardwareMap.get(DcMotor.class, "ARM2");
+
+        // Most robots need the motor on one side to be reversed to drive forward
+        // Reverse the motor that runs backwards when connected directly to the battery
+        LFM.setDirection(DcMotor.Direction.FORWARD);
+        LBM.setDirection(DcMotor.Direction.FORWARD);
+        RFM.setDirection(DcMotor.Direction.REVERSE);
+        RBM.setDirection(DcMotor.Direction.REVERSE);
+
+        ARM1.setDirection(DcMotor.Direction.REVERSE);
+        ARM2.setDirection(DcMotor.Direction.REVERSE);
+
+        ARM1.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+        ARM2.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+
+        //amogus
+        ARM1.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+        ARM2.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+
+        //pidARM1 = new PIDController(.001, 0, 0.0003);
+        //pidARM2 = new PIDController(.006, 0, 0);
+
+        pidARM1 = new PIDController(.003, 0, 0);
+        pidARM2 = new PIDController(.002, 0, 0);
+
+        pidARM1.setInputRange(0, 360);
+        pidARM1.setOutputRange(0, 1);
+        pidARM1.setTolerance(0);
+        pidARM1.enable();
+
+        pidARM2.setInputRange(0, 360);
+        pidARM2.setOutputRange(0, 1);
+        pidARM2.setTolerance(0);
+        pidARM2.enable();
+
+        // Tell the driver that initialization is complete.
+        telemetry.addData("Status", "Initialized");
+    }
+
+    /*
+     * Code to run REPEATEDLY after the driver hits INIT, but before they hit PLAY
+     */
+    @Override
+    public void init_loop() {}
+
+    /*
+     * Code to run ONCE when the driver hits PLAY
+     */
+    @Override
+    public void start() {
+        runtime.reset();
+    }
+
+    /*
+     * Code to run REPEATEDLY after the driver hits PLAY but before they hit STOP
+     */
+    @Override
+    public void loop() {
+        double y = -gamepad1.left_stick_y; // Remember, this is reversed!
+        double x = gamepad1.left_stick_x * 1.1; // Counteract imperfect strafing
+        double turn = gamepad1.right_stick_x;
+
+        double actAngle1 = 2*Math.PI * ARM1.getCurrentPosition() / EC_PER_REV;
+        double actAngle2 = 2*Math.PI * ARM2.getCurrentPosition() / EC_PER_REV2;
+
+        powARM1 = 0;
+        powARM2 = 0;
+        powPID1 = 0;
+        powPID2 = 0;
+
+        if(gamepad2.a){
+            targetAngle1 = 90;
+            targetAngle2 = 120;
+        }
+
+        if(gamepad2.b) {
+            targetAngle1 = 0;
+            targetAngle2 = 0;
+        }
+
+        if(gamepad2.x)
+        {
+            targetAngle2 += 0.5;
+        }
+        if(gamepad2.y)
+        {
+            targetAngle2 -= 0.5;
+        }
+        if(gamepad2.right_bumper){
+            targetAngle1 += 0.5;
+        }
+        if(gamepad2.left_bumper){
+            targetAngle1 -= 0.5;
+        }
+
+        pidARM1.setSetpoint(targetAngle1);
+        pidARM2.setSetpoint(targetAngle2);
+
+        powPID1 = pidARM1.performPID(Math.toDegrees(actAngle1));
+        powPID1 += Math.cos(actAngle1) * f1;
+        if(Math.abs(powPID1) > 1) powPID1 /= Math.abs(powPID1);
+        powPID2 = pidARM2.performPID(Math.toDegrees(actAngle2));
+        powPID2 += Math.cos(actAngle1-Math.PI/2) * f2;
+        if(Math.abs(powPID2) > 1) powPID2 /= Math.abs(powPID2);
+
+        powARM1 = powPID1;
+
+        if(targetAngle2 - actAngle2 < 0)
+            powARM2 = Math.max(INIT_SPEED2/powPID2, -MAX_SPEED2);
+        else powARM2 = Math.min(INIT_SPEED2/powPID2, MAX_SPEED2);
+        if(Math.abs(powARM2) > Math.abs(powPID2))
+            powARM2 = powPID2;
+
+        // Denominator is the largest motor power (absolute value) or 1
+        // This ensures all the powers maintain the same ratio, but only when
+        // at least one is out of the range [-1, 1]
+        double denominator = Math.max(Math.abs(y) + Math.abs(x) + Math.abs(turn), 1);
+        double frontLeftPower = (-y + x + turn) / denominator;
+        double backLeftPower = (-y - x + turn) / denominator;
+        double frontRightPower = (-y - x - turn) / denominator;
+        double backRightPower = (-y + x - turn) / denominator;
+
+        LFM.setPower(frontLeftPower);
+        LBM.setPower(backLeftPower);
+        RFM.setPower(frontRightPower);
+        RBM.setPower(backRightPower);
+
+        ARM1.setPower(powARM1);
+        ARM2.setPower(powARM2);
+
+        telemetry.addData("Cos angle 1", Math.cos(actAngle1));
+        telemetry.addData("ARM1 Encoder", ARM1.getCurrentPosition());
+        telemetry.addData("ARM1 Angle", Math.toDegrees(actAngle1));
+        telemetry.addData("ARM1 Target", targetAngle1);
+        telemetry.addData("ARM1 Power", powARM1);
+        telemetry.addData("ARM1 PID", powPID1);
+        telemetry.addData("ARM2 Encoder", ARM2.getCurrentPosition());
+        telemetry.addData("ARM2 Angle", Math.toDegrees(actAngle2));
+        telemetry.addData("ARM2 Target", targetAngle2);
+        telemetry.addData("ARM2 Power", powARM2);
+        telemetry.addData("ARM2 PID", powPID2);
+        telemetry.addData("Motors", "lfm (%.2f), rfm (%.2f), lbm (%.2f), rbm (%.2f)", frontLeftPower, frontRightPower, backLeftPower, backRightPower);
+        telemetry.update();
+    }
+
+    /*
+     * Code to run ONCE after the driver hits STOP
+     */
+    @Override
+    public void stop() {}
+
+}
